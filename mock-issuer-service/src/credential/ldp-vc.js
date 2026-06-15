@@ -28,12 +28,14 @@ function getRsaKey(issuerDid) {
   const publicKeyObj = crypto.createPublicKey(publicKey);
   const publicKeyJwk = publicKeyObj.export({ format: 'jwk' });
 
-  _rsaKeyCache = {
-    id: `${issuerDid}#key-0`,
-    controller: issuerDid,
-    privateKeyPem: privateKey,
-    publicKeyJwk,
-  };
+ _rsaKeyCache = {
+  id: `${issuerDid}#key-0`,
+  controller: issuerDid,
+  privateKeyPem: privateKey,
+  publicKeyPem: publicKey,
+  publicKeyJwk,
+};
+console.log("RSA_KEY_GENERATED_N", publicKeyJwk.n);
 
   return _rsaKeyCache;
 }
@@ -44,6 +46,7 @@ function getRsaKey(issuerDid) {
  */
 export function getDidDocument(issuerDid) {
   const key = getRsaKey(issuerDid);
+  console.log("DID_DOCUMENT_N", key.publicKeyJwk.n);
   return {
     "@context": [
       "https://www.w3.org/ns/did/v1",
@@ -55,6 +58,7 @@ export function getDidDocument(issuerDid) {
       type: 'RsaVerificationKey2018',
       controller: issuerDid,
       publicKeyJwk: key.publicKeyJwk,
+      publicKeyPem: key.publicKeyPem,
     }],
     assertionMethod: [key.id],
     authentication: [key.id],
@@ -67,15 +71,21 @@ export function getDidDocument(issuerDid) {
  */
 class RsaSignature2018 extends LinkedDataSignature {
   constructor({ key, date } = {}) {
+    console.log("RSA_SUITE_CONSTRUCTOR_CALLED");
     const signer = {
-      id: key.id,
-      sign: async ({ data }) => {
-        return crypto.sign('sha256', data, key.privateKeyPem);
-      }
-    };
+  id: key.id,
+  sign: async ({ data }) => {
+    console.log("CUSTOM_RSA_SIGNER_RUNNING");
+    return crypto.sign('sha256', data, {
+      key: key.privateKeyPem,
+      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
+    });
+  }
+};
     super({
       type: 'RsaSignature2018',
-      algorithm: 'RS256',
+      algorithm: 'PS256',
       date,
       signer,
       // credentials/v1 already defines RsaSignature2018; point contextUrl there
@@ -86,18 +96,72 @@ class RsaSignature2018 extends LinkedDataSignature {
   }
 
   async sign({ verifyData, proof }) {
-    const header = Buffer.from(
-      JSON.stringify({ alg: 'RS256', b64: false, crit: ['b64'] })
-    ).toString('base64url');
-    // JWS signing input: ASCII(header) + "." + raw payload bytes
-    const signingInput = Buffer.concat([
-      Buffer.from(header + '.', 'ascii'),
-      verifyData
-    ]);
-    const signature = crypto.sign('sha256', signingInput, this.rsaKey.privateKeyPem);
-    proof.jws = `${header}..${signature.toString('base64url')}`;
-    return proof;
-  }
+   console.log("SIGN_DATA_LENGTH", verifyData.length);
+
+console.log(
+  "SIGN_DATA_HEX_START",
+  Buffer.from(verifyData)
+    .slice(0, 50)
+    .toString("hex")
+);
+
+console.log(
+  "FULL_SIGN_DATA",
+  Buffer.from(verifyData).toString("hex")
+);
+
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'PS256' })
+  ).toString('base64url');
+  console.log("JWS_HEADER", header);
+
+  const signingInput = Buffer.concat([
+    Buffer.from(header + '.', 'ascii'),
+    verifyData
+  ]);
+  console.log(
+  "SIGNING_INPUT_START",
+  signingInput.slice(0, 100).toString("hex")
+);
+
+console.log(
+  "SIGNING_INPUT_LENGTH",
+  signingInput.length
+);
+
+console.log(
+  "FULL_SIGNING_INPUT",
+  signingInput.toString("hex")
+);
+
+  const signature = crypto.sign(
+    'sha256',
+    signingInput,
+    {
+      key: this.rsaKey.privateKeyPem,
+      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
+    }
+  );
+  const localVerify = crypto.verify(
+  'sha256',
+  signingInput,
+  {
+    key: this.rsaKey.publicKeyPem,
+    padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+    saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
+  },
+  signature
+);
+
+console.log(
+  "LOCAL_VERIFY_RESULT",
+  localVerify
+);
+
+  proof.jws = `${header}..${signature.toString('base64url')}`;
+  return proof;
+}
 
   async getVerificationMethod() {
     return {
@@ -109,17 +173,61 @@ class RsaSignature2018 extends LinkedDataSignature {
   }
 
   async canonizeProof(proof, { document, documentLoader }) {
-    proof = {
-      '@context': document['@context'] || 'https://w3id.org/security/v2',
-      ...proof
-    };
-    delete proof.jws;
-    delete proof.signatureValue;
-    delete proof.proofValue;
-    return this.canonize(proof, { documentLoader, skipExpansion: false });
+   console.log(
+  "CANONIZE_PROOF_INPUT",
+  JSON.stringify(proof, null, 2)
+);
+
+console.log(
+  "CANONIZE_PROOF_DOCUMENT_CONTEXT",
+  JSON.stringify(document['@context'], null, 2)
+); 
+   proof = {
+  '@context': [
+    'https://w3id.org/security/v2'
+  ],
+  ...proof
+};
+    console.log(
+  "CANONIZE_PROOF_AFTER_CONTEXT",
+  JSON.stringify(proof, null, 2)
+);
+  delete proof.jws;
+delete proof.signatureValue;
+delete proof.proofValue;
+
+console.log(
+  "FINAL_PROOF_OBJECT",
+  JSON.stringify(proof, null, 2)
+);
+
+const canonized = await this.canonize(
+  proof,
+  { documentLoader, skipExpansion: false }
+);
+
+console.log(
+  "FINAL_PROOF_CANONIZED",
+  canonized
+);
+console.log(
+  'PROOF_CANONIZED_HEX',
+  Buffer.from(canonized, 'utf8').toString('hex')
+);
+
+console.log(
+  'PROOF_CANONIZED_HEX_LENGTH',
+  Buffer.from(canonized, 'utf8').length
+);
+
+return canonized;
   }
 
   async canonize(input, { documentLoader, skipExpansion }) {
+    console.log(
+  "CANONIZE_INPUT",
+  JSON.stringify(input, null, 2)
+);
     const jsonld = (await import('jsonld')).default;
     const rdfCanonize = (await import('rdf-canonize')).default;
     const opts = {
@@ -134,10 +242,17 @@ class RsaSignature2018 extends LinkedDataSignature {
     };
     delete opts.format;
     const dataset = await jsonld.toRDF(input, opts);
-    return rdfCanonize.canonize(dataset, {
-      algorithm: 'RDFC-1.0',
-      format: 'application/n-quads',
-    });
+   const canonized = await rdfCanonize.canonize(dataset, {
+  algorithm: 'RDFC-1.0',
+  format: 'application/n-quads',
+});
+
+console.log(
+  "CANONIZED_OUTPUT",
+  canonized
+);
+
+return canonized;
   }
 
   async assertVerificationMethod({ verificationMethod }) {
@@ -326,6 +441,7 @@ async function signWithEd25519(credential, issuerDid) {
 }
 
 export async function signLdpVc(credential, issuerDid) {
+  console.log("LDP_SIGNATURE_SUITE =", LDP_SIGNATURE_SUITE);
   if (LDP_SIGNATURE_SUITE === 'rsa') {
     return signWithRsa(credential, issuerDid);
   }

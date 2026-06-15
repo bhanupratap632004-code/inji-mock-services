@@ -1,4 +1,5 @@
-export const ISSUER = "https://3ab7-2405-201-801a-9ad1-4dac-ced7-72c1-fa74.ngrok-free.app";
+export const ISSUER =
+  "https://finlike-cozily-blasphemy.ngrok-free.dev";
 
 export function normalizeSpecVersion(version) {
   return version === "draft13" ? "draft13" : "v1";
