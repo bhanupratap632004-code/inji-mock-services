@@ -163,10 +163,8 @@ export default async function credentialEndpoint(req, res) {
         }
     }
   } catch (error) {
-    console.error("Signing failed:", error);
-    return res.status(500).json({ error: "signing_error" });
-  }
-
+  return res.status(500).json({ error: "signing_error" });
+}
   if (isV1) {
     return res.json({
       credentials: [ { credential } ],
