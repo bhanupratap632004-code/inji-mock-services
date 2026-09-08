@@ -97,7 +97,7 @@ async function decryptJwe(jweToken, encryptionKey) {
         throw new Error('Invalid JWE token: must be a non-empty string');
     }
 
-    f (!encryptionKey) {
+    if (!encryptionKey) {
         throw new Error('Invalid encryption key: private key required');
     }
 

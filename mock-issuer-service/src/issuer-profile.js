@@ -1,4 +1,6 @@
-export const ISSUER = "https://704b-117-98-182-203.ngrok-free.app";
+import "dotenv/config";
+
+export const ISSUER = process.env.ISSUER_URL || "https://mock-issuer.local:4000";
 
 export function normalizeSpecVersion(version) {
   return version === "draft13" ? "draft13" : "v1";

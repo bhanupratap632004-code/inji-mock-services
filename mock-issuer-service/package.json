@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node scripts/start-all.js",
+    "start:issuer-only": "node src/server.js"
   },
   "dependencies": {
     "@digitalbazaar/ed25519-signature-2018": "^4.2.0",

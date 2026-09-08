@@ -1,7 +1,8 @@
 import crypto from "crypto";
 import { resolveIssuanceOptions } from "../issuance-options.js";
 import { authServerBaseUrl, issuerBaseUrl } from "../issuer-profile.js";
-import { preAuthCodeStore } from "../as/authz-store.js";
+import { issuerStateStore, preAuthCodeStore, stageTestErrorStore } from "../as/authz-store.js";
+import { envTestError, resolveTestError } from "../test-errors.js";
 
 export default function credentialOfferHandler(req, res) {
   const options = resolveIssuanceOptions(req.query);
@@ -15,6 +16,40 @@ export default function credentialOfferHandler(req, res) {
 
   // random issuer_state for this issuance session
   const issuerState = crypto.randomBytes(8).toString("hex");
+  const testError = envTestError("offer") || resolveTestError(req.query);
+  if (testError?.stage === "offer") {
+    if (testError.code === "credential_offer_fetch_failed") {
+      return res.status(testError.status).json({
+        error: testError.responseCode,
+        error_description: testError.description,
+      });
+    }
+
+    if (testError.code === "invalid_credential_offer") {
+      return res.json({
+        issuer_state: issuerState,
+        grants: {},
+      });
+    }
+
+    if (testError.code === "unsupported_grant") {
+      return res.json({
+        credential_issuer: issuer,
+        issuer_state: issuerState,
+        credential_configuration_ids: [options.credentialDetails.configurationId],
+        grants: {
+          "urn:example:unsupported-grant": {
+            issuer_state: issuerState,
+          },
+        },
+      });
+    }
+  }
+
+  if (testError) {
+    issuerStateStore.set(issuerState, { testError });
+    stageTestErrorStore.set(testError.stage, testError);
+  }
 
   let grantResponse = {};
 
@@ -50,7 +85,8 @@ export default function credentialOfferHandler(req, res) {
     preAuthCodeStore.set(preAuthorizedCode, {
       txCode,
       configurationId: options.credentialDetails.configurationId,
-      scope: options.credentialDetails.scope
+      scope: options.credentialDetails.scope,
+      testError,
     });
 
     grantResponse = {

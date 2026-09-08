@@ -73,14 +73,26 @@ function dropDown(name, options, currentValue, hint = "Option") {
   `;
 }
 
-function renderPage(options, pin = null) {
+function renderPage(options, pin = null, configError = null, jsonFieldText = {}) {
   const { offerUri, qrData } = buildQrPayload(options, pin);
+  const presentationDefinitionText = jsonFieldText.presentationDefinition
+    ?? JSON.stringify(verifierConfig.presentationDefinition, null, 2);
+  const dcqlQueryText = jsonFieldText.dcqlQuery
+    ?? JSON.stringify(verifierConfig.dcqlQuery, null, 2);
 
   const queryParams = new URLSearchParams({
     flow: options.flow,
     version: options.version,
     credential: options.credential
   });
+  if (options.testErrorStage) queryParams.set("test_error_stage", options.testErrorStage);
+  if (options.testErrorCode !== null) {
+    queryParams.set("test_error_code", options.testErrorCode);
+  }
+  if (options.testErrorStatus) queryParams.set("test_error_status", options.testErrorStatus);
+  if (options.testErrorDescription) {
+    queryParams.set("test_error_description", options.testErrorDescription);
+  }
   if (pin) queryParams.set("tx_code", pin);
 
   const qrImageUrl = `/qr/image?${queryParams.toString()}`;
@@ -417,6 +429,73 @@ function renderPage(options, pin = null) {
         background: #fff;
         box-shadow: 0 0 0 3px rgba(23, 107, 82, 0.15);
       }
+
+      .json-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 14px;
+      }
+
+      .json-field label {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .json-field small {
+        color: var(--text-muted);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .json-field textarea {
+        width: 100%;
+        min-height: 160px;
+        padding: 10px 14px;
+        font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--text);
+        background: var(--surface-muted);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        outline: none;
+        resize: vertical;
+        transition: border-color .2s, box-shadow .2s, background .2s;
+      }
+
+      .json-field textarea:focus {
+        border-color: var(--accent);
+        background: #fff;
+        box-shadow: 0 0 0 3px rgba(23, 107, 82, 0.15);
+      }
+
+      .json-apply-button {
+        align-self: flex-start;
+        margin-top: 4px;
+        padding: 8px 16px;
+        font: inherit;
+        font-weight: 600;
+        font-size: 13px;
+        color: #fff;
+        background: var(--accent);
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+
+      .json-apply-button:hover {
+        background: var(--accent-strong);
+      }
+
+      .config-error-banner {
+        margin-top: 12px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        background: #fdecea;
+        border: 1px solid #f2b8b5;
+        color: #7a2019;
+        font-size: 13px;
+      }
     </style>
   </head>
   <body>
@@ -488,6 +567,23 @@ function renderPage(options, pin = null) {
                     "Should the VP request be signed?"
                   )}
                 </div>
+
+                ${configError ? `<div class="config-error-banner">${escapeHtml(configError)}</div>` : ""}
+
+                ${options.specVersion === "draft-23" ? `
+                  <div class="json-field">
+                    <label for="presentationDefinition">Presentation Definition (used for draft-23)</label>
+                    <small>Edited here, this is what the issuer sends to the verifier as \`presentation_definition\` for every PDI request.</small>
+                    <textarea name="presentationDefinition" id="presentationDefinition">${escapeHtml(presentationDefinitionText)}</textarea>
+                  </div>
+                ` : `
+                  <div class="json-field">
+                    <label for="dcqlQuery">DCQL Query (used for version-1.0)</label>
+                    <small>Edited here, this is what the issuer sends to the verifier as \`dcql_query\` for every PDI request.</small>
+                    <textarea name="dcqlQuery" id="dcqlQuery">${escapeHtml(dcqlQueryText)}</textarea>
+                  </div>
+                `}
+                <button type="button" id="apply-json-config" class="json-apply-button">Apply JSON config</button>
               </div>
             `
             : ""}
@@ -547,11 +643,21 @@ function renderPage(options, pin = null) {
 
     <script>
       const form = document.getElementById("issuer-controls");
-      form.addEventListener("change", () => {
+      form.addEventListener("change", (event) => {
+        if (event.target.tagName === "TEXTAREA") return; // textareas use the Apply button below instead
         const data = new FormData(form);
         const params = new URLSearchParams(data);
         window.location.search = params.toString();
       });
+
+      const applyJsonButton = document.getElementById("apply-json-config");
+      if (applyJsonButton) {
+        applyJsonButton.addEventListener("click", () => {
+          const data = new FormData(form);
+          const params = new URLSearchParams(data);
+          window.location.search = params.toString();
+        });
+      }
     </script>
   </body>
 </html>`;
@@ -580,6 +686,8 @@ export async function qrImageHandler(req, res) {
 export default async function qrPageHandler(req, res) {
   const options = resolveIssuanceOptions(req.query);
   let pin = req.query.tx_code;
+  let configError = null;
+  const jsonFieldText = {};
 
   if (options.flow === "pdi") {
     verifierConfig.specVersion = options.specVersion;
@@ -587,6 +695,24 @@ export default async function qrPageHandler(req, res) {
     verifierConfig.clientIdPrefix = options.clientIdPrefix;
     verifierConfig.requestMode = options.requestMode;
     verifierConfig.signedRequest = options.signedRequest;
+
+    if (typeof req.query.presentationDefinition === "string" && req.query.presentationDefinition.trim()) {
+      jsonFieldText.presentationDefinition = req.query.presentationDefinition;
+      try {
+        verifierConfig.presentationDefinition = JSON.parse(req.query.presentationDefinition);
+      } catch (err) {
+        configError = `Invalid JSON in Presentation Definition: ${err.message}. Previous value is still in use - fix and click "Apply JSON config" again.`;
+      }
+    }
+
+    if (typeof req.query.dcqlQuery === "string" && req.query.dcqlQuery.trim()) {
+      jsonFieldText.dcqlQuery = req.query.dcqlQuery;
+      try {
+        verifierConfig.dcqlQuery = JSON.parse(req.query.dcqlQuery);
+      } catch (err) {
+        configError = `Invalid JSON in DCQL Query: ${err.message}. Previous value is still in use - fix and click "Apply JSON config" again.`;
+      }
+    }
   }
 
   if (options.flow === "pre-auth-tx" && !pin) {
@@ -601,5 +727,5 @@ export default async function qrPageHandler(req, res) {
   }
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(renderPage(options, pin));
+  res.send(renderPage(options, pin, configError, jsonFieldText));
 }

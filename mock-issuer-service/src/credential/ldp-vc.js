@@ -160,23 +160,18 @@ class RsaSignature2018 extends LinkedDataSignature {
     };
   }
 
-  async canonizeProof(proof, { document, documentLoader }) {
-   proof = {
-  '@context': [
-    'https://w3id.org/security/v2'
-  ],
-  ...proof
-};
-  
+async canonizeProof(proof, {document, documentLoader}) {
+  proof = {
+    '@context': 'https://w3id.org/security/v2',
+    ...proof
+  };
+
   delete proof.jws;
-delete proof.signatureValue;
-delete proof.proofValue;
-const canonized = await this.canonize(
-  proof,
-  { documentLoader, skipExpansion: false }
-);
-return canonized;
-  }
+  delete proof.signatureValue;
+  delete proof.proofValue;
+
+  return this.canonize(proof, {documentLoader, skipExpansion: false});
+}
 
   async canonize(input, { documentLoader, skipExpansion }) {
     const jsonld = (await import('jsonld')).default;

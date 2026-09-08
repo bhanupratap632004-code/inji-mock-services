@@ -28,9 +28,9 @@
       <p><strong>Password:</strong> any password (mock)</p>
 
       <form method="POST" action="{{form_action}}">
-        <input type="hidden" name="client_id" value="{{client_id}}" />
-        <input type="hidden" name="redirect_uri" value="{{redirect_uri}}" />
-        <input type="hidden" name="state" value="{{state}}" />
+        <!-- The authorization-request parameters stay server-side; this opaque id is the
+             only thing that travels through the browser. -->
+        <input type="hidden" name="login_txn" value="{{login_txn}}" />
 
         <button type="submit">Login & Continue</button>
       </form>

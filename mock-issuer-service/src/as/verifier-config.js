@@ -3,7 +3,7 @@ export const verifierConfig = {
   responseMode: "iar-post", // keep as iar-post / iae_post or iar-post.jwt / iae_post.jwt (encrypted response)
   clientIdPrefix: "did",
   requestMode: "by_reference", // by_value or by_reference
-  verifierBaseUrl: "http://localhost:3000", // Verifier backend service URL
+  verifierBaseUrl: process.env.VERIFIER_BASE_URL || "http://localhost:3000", // Verifier backend service URL
   signedRequest: true, // Set to true if you want the request to be signed by the verifier or keep as false
   presentationDefinition: { // Presentation defintion will be used for draft 23
     "id": "c4822b58-7fb4-454e-b827-f8758fe27f9a",

@@ -141,7 +141,21 @@ By default, the Verifier's encryption key is exposed as an `OKP` key using the `
 | `GET` | `/verifier/callback` | Renders the success callback page after completion of the response flow. |
 | `POST` | `/verifier/decrypt-jwe` | Decrypts a JWE token using the active server encryption key and returns the decrypted payload. |
 
-### Common API Examples
+### Presentation During Issuance (PDI) integration with mock-issuer-service
+
+The `mock-issuer-service` calls this backend's `/verifier/:client_id_prefix/:request_mode`
+endpoint during its PDI interactive-authorization flow to obtain a verifier request,
+passing the client ID prefix, request mode, signing option, and presentation
+definition / DCQL query it wants to use. That request shape is configured entirely on
+the issuer side (its own `/qr` page, PDI flow) - see the `mock-issuer-service` README
+for details. This backend doesn't need any special PDI-specific setup; it just serves
+the same `/verifier/:client_id_prefix/:request_mode` endpoint used for standalone QR
+testing via the ovp-client UI.
+
+To drive a PDI run, start both services together with `npm start` from
+`mock-issuer-service` (see that service's README for the one-command flow, including
+the ngrok prompts), then configure the verifier request on the issuer's `/qr` page.
+
 
 Generate a QR code payload for a `by_reference` request:
 

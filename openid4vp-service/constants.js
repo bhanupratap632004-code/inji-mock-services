@@ -15,8 +15,8 @@ const jwkSet = {
         }
     ]
 }
-//update this baseurl with the localtunnel url
-const baseUrl = "http://localhost:3000"
+//update this baseurl with the localtunnel url (or set BASE_URL env var)
+const baseUrl = process.env.BASE_URL || "http://localhost:3000"
 const requestUri = `${baseUrl}/verifier/get-auth-request-obj`
 const responseUri = `${baseUrl}/verifier/vp-response`
 const presentationDefinitionUri  = `${baseUrl}/verifier/presentation_definition_uri`

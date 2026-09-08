@@ -5,13 +5,16 @@ import {
   STATIC_MDL_MDOC,
   STATIC_MDL_MDOC_SAMPLE_B64URL,
 } from "./static-vc.js";
-import { SignJWT, generateKeyPair, exportJWK, decodeProtectedHeader } from 'jose';
+import { SignJWT, generateKeyPair, exportJWK, decodeProtectedHeader, decodeJwt } from 'jose';
 import { randomUUID, createHash } from 'node:crypto';
 import { ISSUER } from "../issuer-metadata.js";
+import { accessTokenStore, stageTestErrorStore } from "../as/authz-store.js";
+import { verifyDPoPProof, buildHtu, DPoPError } from "../as/dpop.js";
 import { hasExplicitVersion, issuerBaseUrl, resolveRequestVersion } from "../issuer-profile.js";
 import { createSdJwt } from "./sd-jwt.js";
 import { createMdoc } from "./mdoc.js";
 import { signLdpVc } from "./ldp-vc.js";
+import { envTestError, sendTestError } from "../test-errors.js";
 
 const SUPPORTED_FORMATS = ["ldp_vc", "jwt_vc_json", "vc+sd-jwt","dc+sd-jwt", "mso_mdoc"];
 
@@ -26,6 +29,70 @@ const CONFIG_TO_FORMAT = {
 
 export default async function credentialEndpoint(req, res) {
   const body = req.body || {};
+
+  // Accept both Bearer and DPoP tokens
+  const authHeader = req.headers.authorization || "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const dpopMatch   = authHeader.match(/^DPoP\s+(.+)$/i);
+  const accessToken = (dpopMatch?.[1] || bearerMatch?.[1]) ?? null;
+  const isDpopToken = Boolean(dpopMatch);
+
+  const tokenEntry = accessToken ? accessTokenStore.get(accessToken) : null;
+
+  // ── DPoP binding check ────────────────────────────────────────────────────
+  if (isDpopToken) {
+    const dpopProof = req.headers["dpop"];
+    if (!dpopProof) {
+      return res.status(401).json({
+        error: "invalid_token",
+        error_description: "DPoP proof required for DPoP-bound token",
+      });
+    }
+    if (!tokenEntry) {
+      return res.status(401).json({ error: "invalid_token", error_description: "Access token not found" });
+    }
+    if (tokenEntry.tokenType !== "DPoP") {
+      return res.status(401).json({
+        error: "invalid_token",
+        error_description: "Token type mismatch: token was issued as Bearer",
+      });
+    }
+    try {
+      const htu = buildHtu(req);
+      console.log("[DPoP Credential Proof]");
+      console.log("  header :", JSON.stringify(decodeProtectedHeader(dpopProof)));
+      console.log("  payload:", JSON.stringify(decodeJwt(dpopProof)));
+      await verifyDPoPProof(dpopProof, "POST", htu, { accessToken });
+    } catch (err) {
+      console.warn("Credential endpoint DPoP validation failed:", err.message);
+      return res.status(401)
+        .set("WWW-Authenticate", `DPoP error="${err.code}", error_description="${err.description}"`)
+        .json({ error: err.code, error_description: err.description });
+    }
+    console.log("DPoP-bound credential request validated ✓");
+  }
+  // ── End DPoP binding check ─────────────────────────────────────────────────
+  else if (accessToken) {
+    // A DPoP-bound token must be presented with the DPoP scheme + proof. Accepting it as a
+    // plain Bearer token would defeat sender-constraining (RFC 9449 §7.1), so reject it.
+    if (tokenEntry?.tokenType === "DPoP") {
+      return res.status(401)
+        .set("WWW-Authenticate", 'DPoP error="invalid_token", error_description="DPoP-bound access token presented as Bearer"')
+        .json({
+          error: "invalid_token",
+          error_description: "DPoP-bound access token must be presented with a DPoP proof",
+        });
+    }
+    console.log(
+      `Bearer credential request (no DPoP) — token_type on record: ${tokenEntry?.tokenType ?? "unknown"}`,
+    );
+  }
+
+  const testError =
+    envTestError("credential") || tokenEntry?.testError || stageTestErrorStore.get("credential") || null;
+  if (testError) stageTestErrorStore.delete("credential");
+  if (sendTestError(res, testError)) return;
+
   const explicitVersion = hasExplicitVersion(req);
   const version = resolveRequestVersion(req);
   const isV1 = explicitVersion
